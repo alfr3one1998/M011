@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.TajOrders" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/burgundy</item>
+        <item name="colorPrimaryVariant">@color/burgundy_dark</item>
+        <item name="colorSecondary">@color/gold</item>
+        <item name="android:statusBarColor">@color/burgundy_dark</item>
+        <item name="android:navigationBarColor">@color/burgundy_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
