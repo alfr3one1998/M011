@@ -4,7 +4,6 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.webkit.CookieManager
-import androidx.core.app.NotificationManagerCompat
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -43,19 +42,26 @@ class OrderMonitorService : Service() {
         try {
             checkOrders()
         } catch (_: Exception) {
-            // Network failures are ignored; the next scheduled pass retries automatically.
+            // Retry automatically on the next scheduled pass.
         }
     }
 
     private fun checkOrders() {
-        val connection = (URL(MainActivity.TARGET_URL).openConnection() as HttpURLConnection).apply {
+        val prefs = getSharedPreferences("order_monitor", MODE_PRIVATE)
+        val targetUrl = prefs.getString("orders_url", null) ?: MainActivity.DEFAULT_ORDERS_URL
+
+        val connection = (URL(targetUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 12_000
             readTimeout = 15_000
             instanceFollowRedirects = true
             requestMethod = "GET"
-            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) TajAlmalkaOrdersAndroid/1.0")
-            CookieManager.getInstance().getCookie(MainActivity.TARGET_URL)?.let {
-                setRequestProperty("Cookie", it)
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) TajAlmalkaOrdersAndroid/1.1")
+
+            val cookieManager = CookieManager.getInstance()
+            val cookie = cookieManager.getCookie(targetUrl)
+                ?: cookieManager.getCookie("https://tajalmalka.com")
+            if (!cookie.isNullOrBlank()) {
+                setRequestProperty("Cookie", cookie)
             }
         }
 
@@ -69,12 +75,11 @@ class OrderMonitorService : Service() {
         val html = connection.inputStream.bufferedReader().use { it.readText() }
         connection.disconnect()
 
-        if (finalUrl.contains("login") || looksLikeLoginPage(html)) return
+        if (finalUrl.contains("login") || looksLikeLoginPage(html) || looksLikeNotFoundPage(html)) return
 
         val fingerprint = extractOrderFingerprint(html)
         if (fingerprint.isBlank()) return
 
-        val prefs = getSharedPreferences("order_monitor", MODE_PRIVATE)
         val previous = prefs.getString("last_fingerprint", null)
 
         if (previous == null) {
@@ -84,7 +89,7 @@ class OrderMonitorService : Service() {
 
         if (previous != fingerprint) {
             prefs.edit().putString("last_fingerprint", fingerprint).apply()
-            NotificationHelper.showNewOrder(this, "تم رصد طلب جديد أو تغيير في قائمة الطلبات")
+            NotificationHelper.showNewOrder(this, "وصل طلب جديد أو حدث تغيير في قائمة الطلبات")
         }
     }
 
@@ -92,6 +97,13 @@ class OrderMonitorService : Service() {
         val lower = html.lowercase()
         return (lower.contains("type=\"password\"") || lower.contains("type='password'")) &&
             (lower.contains("login") || lower.contains("تسجيل الدخول"))
+    }
+
+    private fun looksLikeNotFoundPage(html: String): Boolean {
+        val lower = html.lowercase()
+        return lower.contains("لم يتم العثور على الصفحة") ||
+            lower.contains("page not found") ||
+            lower.contains(">404<")
     }
 
     private fun extractOrderFingerprint(html: String): String {
@@ -117,7 +129,7 @@ class OrderMonitorService : Service() {
             .find(html)
             ?.groupValues
             ?.getOrNull(1)
-            ?: html
+            ?: return ""
 
         val cleaned = tbody
             .replace(Regex("<script[^>]*>.*?</script>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "")
